@@ -26,6 +26,15 @@ services:
       EVENTS_PER_SECOND: "1"
     restart: on-failure
 
+  dq-transformer:
+    build: ./dq_transformer
+    depends_on: [kafka]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RAW_TOPIC: game-events-raw
+      CLEAN_TOPIC: game-events-clean
+    restart: on-failure
+
   spark-batch:
     build: ./spark
     profiles: ["batch"]
