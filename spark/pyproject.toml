@@ -1,0 +1,15 @@
+[project]
+name = "spark-aggregator"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pyspark==3.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.4",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
