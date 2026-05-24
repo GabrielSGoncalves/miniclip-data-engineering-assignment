@@ -1,0 +1,19 @@
+rules:
+  - type: uppercase
+    field: platform
+    event_types: [init]
+
+  - type: map_id
+    field: country
+    event_types: [init]
+    mapping:
+      PT: Portugal
+      US: United States
+      GB: United Kingdom
+      DE: Germany
+      BR: Brazil
+      FR: France
+      ES: Spain
+      IT: Italy
+      CA: Canada
+      AU: Australia
