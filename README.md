@@ -5,10 +5,10 @@ Real-time event processing pipeline for 8ballpool game events. Built with Kafka,
 ## Architecture
 
 ```
-[producer] ──► [Kafka: game-events-raw] ──► [spark-batch]
+[producer] ──► [Kafka: game-events-raw] ──► [dq-transformer] ──► [Kafka: game-events-clean] ──► [spark-batch]
 ```
 
-Events flow from a synthetic producer into Kafka, where a Spark batch job reads and aggregates them. Parts II and III (DQ transformer and Spark Streaming) will extend this pipeline.
+Events flow from a synthetic producer into Kafka. A DQ transformer reads from the raw topic, applies configurable field transformations, and publishes cleaned events to a second topic. A Spark batch job reads from the clean topic and aggregates the data.
 
 ## Prerequisites
 
@@ -64,7 +64,62 @@ docker compose exec kafka /opt/kafka/bin/kafka-run-class.sh kafka.tools.GetOffse
 
 Output format is `topic:partition:offset` — e.g. `game-events-raw:0:143` means 143 messages in partition 0.
 
-### 2. Run the Spark batch aggregation
+### 2. Start the DQ transformer
+
+The transformer reads from `game-events-raw`, applies transformations, and publishes to `game-events-clean`:
+
+```bash
+docker compose up -d dq-transformer
+```
+
+Watch the transformations in real time:
+
+```bash
+docker compose logs -f dq-transformer
+```
+
+You should see `init` events with `platform` uppercased and `country` expanded to a full name:
+
+```
+→ init  user=user_4  platform=IOS  country=Portugal
+→ init  user=user_7  platform=ANDROID  country=Brazil
+→ match  user=user_2  platform=-  country=-
+```
+
+To inspect the cleaned messages in Kafka:
+
+```bash
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic game-events-clean --from-beginning
+```
+
+#### Adding a new transformation rule
+
+Transformations are configured in `dq_transformer/config/rules.yaml` — no code changes required. Each rule entry specifies a `type`, a `field`, and which `event_types` it applies to:
+
+```yaml
+rules:
+  - type: uppercase
+    field: platform
+    event_types: [init]
+
+  - type: map_id
+    field: country
+    event_types: [init]
+    mapping:
+      PT: Portugal
+      US: United States
+```
+
+Supported rule types:
+
+| Type | Effect | Example |
+|---|---|---|
+| `uppercase` | Uppercases the field value | `ios → IOS` |
+| `map_id` | Maps a value to a name via a lookup table | `PT → Portugal` |
+
+### 3. Run the Spark batch aggregation
 
 Let the producer run for at least 30 seconds to accumulate data, then:
 
@@ -83,7 +138,7 @@ This reads all messages in `game-events-raw` from the beginning and prints daily
 +----------+-------+--------+--------------+
 ```
 
-### 3. Tear down
+### 4. Tear down
 
 ```bash
 docker compose down
@@ -100,6 +155,10 @@ uv run pytest tests/ -v
 
 # Spark batch aggregation tests — pure DataFrame logic, no Kafka or Docker required
 cd spark
+uv run pytest tests/ -v
+
+# DQ transformer rule tests — pure rule logic, no Kafka or Docker required
+cd dq_transformer
 uv run pytest tests/ -v
 ```
 
