@@ -6,9 +6,10 @@ Real-time event processing pipeline for 8ballpool game events. Built with Kafka,
 
 ```
 [producer] ──► [Kafka: game-events-raw] ──► [dq-transformer] ──► [Kafka: game-events-clean] ──► [spark-batch]
+                                                                                                ──► [spark-streaming]
 ```
 
-Events flow from a synthetic producer into Kafka. A DQ transformer reads from the raw topic, applies configurable field transformations, and publishes cleaned events to a second topic. A Spark batch job reads from the clean topic and aggregates the data.
+Events flow from a synthetic producer into Kafka. A DQ transformer reads from the raw topic, applies configurable field transformations, and publishes cleaned events to a second topic. A Spark batch job reads from the clean topic and aggregates the data. A Spark Streaming job reads continuously from the clean topic and emits per-minute aggregations.
 
 ## Prerequisites
 
@@ -138,7 +139,58 @@ This reads all messages in `game-events-raw` from the beginning and prints daily
 +----------+-------+--------+--------------+
 ```
 
-### 4. Tear down
+### 4. Run the Spark Streaming aggregation
+
+The streaming job reads from `game-events-clean` and prints five per-minute aggregations every 60 seconds:
+
+- Count of all purchases
+- Sum of all revenue
+- Number of distinct active users
+- Revenue by country
+- Number of matches by country
+
+Start it with:
+
+```bash
+docker compose --profile streaming up spark-streaming
+```
+
+Country is derived from `init` events and accumulated in-memory across micro-batches. Users whose `init` event has not yet been seen are grouped under `"Unknown"` until the event arrives.
+
+Sample output (printed every minute):
+
+```
+============================================================
+  Batch 1 — per-minute aggregations
+============================================================
+
+>> Global metrics (purchases / revenue / distinct users):
++--------------+------------------+---------------+
+|purchase_count|total_revenue     |distinct_users |
++--------------+------------------+---------------+
+|3             |47.97             |12             |
++--------------+------------------+---------------+
+
+>> Revenue by country:
++-------------+------------------+
+|country      |revenue           |
++-------------+------------------+
+|Brazil       |9.99              |
+|Portugal     |37.98             |
++-------------+------------------+
+
+>> Matches by country:
++-------------+-----------+
+|country      |match_count|
++-------------+-----------+
+|Brazil       |4          |
+|Portugal     |7          |
++-------------+-----------+
+```
+
+The job checkpoints Kafka offsets to a named Docker volume (`streaming_checkpoint`) so it resumes from where it left off on restart.
+
+### 5. Tear down
 
 ```bash
 docker compose down
@@ -153,7 +205,7 @@ Tests run locally without Docker. [`uv`](https://docs.astral.sh/uv/) manages the
 cd producer
 uv run pytest tests/ -v
 
-# Spark batch aggregation tests — pure DataFrame logic, no Kafka or Docker required
+# Spark aggregation tests (batch + streaming) — pure DataFrame logic, no Kafka or Docker required
 cd spark
 uv run pytest tests/ -v
 
