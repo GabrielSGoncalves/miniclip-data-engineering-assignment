@@ -63,5 +63,87 @@ services:
         --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
         /app/streaming_aggregator.py
 
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    profiles: ["lakehouse"]
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-01-16T16-07-38Z
+    profiles: ["lakehouse"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/warehouse
+      "
+
+  iceberg-rest:
+    image: tabulario/iceberg-rest:0.10.0
+    profiles: ["lakehouse"]
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "8181:8181"
+    environment:
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+
+  trino:
+    image: trinodb/trino:446
+    profiles: ["lakehouse"]
+    depends_on: [iceberg-rest]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+      - ./trino/jvm.config:/etc/trino/jvm.config:ro
+      - ./trino/node.properties:/etc/trino/node.properties:ro
+      - ./trino/catalog/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
+
+  iceberg-loader:
+    build: ./spark
+    profiles: ["lakehouse"]
+    depends_on: [kafka, dq-transformer, iceberg-rest]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: game-events-clean
+      CHECKPOINT_PATH: /tmp/iceberg_checkpoint
+      ICEBERG_CATALOG_URI: http://iceberg-rest:8181
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - iceberg_checkpoint:/tmp/iceberg_checkpoint
+    restart: on-failure
+    command: >
+      /opt/spark/bin/spark-submit
+        --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0,org.apache.iceberg:iceberg-aws-bundle:1.5.0,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
+        /app/iceberg_loader.py
+
 volumes:
   streaming_checkpoint:
+  minio_data:
+  iceberg_checkpoint:
