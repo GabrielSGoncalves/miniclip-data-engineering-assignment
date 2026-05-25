@@ -46,3 +46,22 @@ services:
       /opt/spark/bin/spark-submit
         --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
         /app/batch_aggregator.py
+
+  spark-streaming:
+    build: ./spark
+    profiles: ["streaming"]
+    depends_on: [kafka, dq-transformer]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: game-events-clean
+      CHECKPOINT_PATH: /tmp/streaming_checkpoint
+    volumes:
+      - streaming_checkpoint:/tmp/streaming_checkpoint
+    restart: on-failure
+    command: >
+      /opt/spark/bin/spark-submit
+        --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
+        /app/streaming_aggregator.py
+
+volumes:
+  streaming_checkpoint:
