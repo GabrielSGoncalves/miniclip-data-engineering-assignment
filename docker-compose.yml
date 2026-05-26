@@ -64,7 +64,7 @@ services:
         /app/streaming_aggregator.py
 
   minio:
-    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    image: minio/minio:latest
     profiles: ["lakehouse"]
     ports:
       - "9000:9000"
@@ -82,7 +82,7 @@ services:
       retries: 5
 
   minio-init:
-    image: minio/mc:RELEASE.2024-01-16T16-07-38Z
+    image: minio/mc:latest
     profiles: ["lakehouse"]
     depends_on:
       minio:
@@ -135,6 +135,9 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
     volumes:
       - iceberg_checkpoint:/tmp/iceberg_checkpoint
     restart: on-failure
