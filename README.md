@@ -7,9 +7,10 @@ Real-time event processing pipeline for 8ballpool game events. Built with Kafka,
 ```
 [producer] ──► [Kafka: game-events-raw] ──► [dq-transformer] ──► [Kafka: game-events-clean] ──► [spark-batch]
                                                                                                 ──► [spark-streaming]
+                                                                                                ──► [iceberg-loader] ──► [MinIO] ◄── [Iceberg REST] ◄── [Trino]
 ```
 
-Events flow from a synthetic producer into Kafka. A DQ transformer reads from the raw topic, applies configurable field transformations, and publishes cleaned events to a second topic. A Spark batch job reads from the clean topic and aggregates the data. A Spark Streaming job reads continuously from the clean topic and emits per-minute aggregations.
+Events flow from a synthetic producer into Kafka. A DQ transformer reads from the raw topic, applies configurable field transformations, and publishes cleaned events to a second topic. A Spark batch job reads from the clean topic and aggregates the data. A Spark Streaming job reads continuously from the clean topic and emits per-minute aggregations. An Iceberg loader streams clean events into a Parquet/Iceberg table on MinIO, queryable via Trino.
 
 ## Prerequisites
 
@@ -58,7 +59,7 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh \
 To check how many messages have been written to the topic:
 
 ```bash
-docker compose exec kafka /opt/kafka/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+docker compose exec kafka /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 \
   --topic game-events-raw
 ```
@@ -190,7 +191,77 @@ Sample output (printed every minute):
 
 The job checkpoints Kafka offsets to a named Docker volume (`streaming_checkpoint`) so it resumes from where it left off on restart.
 
-### 5. Tear down
+### 5. Run the lakehouse stack (MinIO + Iceberg + Trino)
+
+The lakehouse profile adds durable storage and interactive SQL on top of the existing pipeline.
+
+Start the full stack:
+
+```bash
+docker compose up -d kafka producer dq-transformer
+docker compose --profile lakehouse up -d
+```
+
+This brings up five additional services:
+
+| Service | Purpose | Port |
+|---|---|---|
+| `minio` | S3-compatible object store | 9000 (API), 9001 (console) |
+| `minio-init` | One-shot bucket creation | — |
+| `iceberg-rest` | Iceberg REST catalog | 8181 |
+| `iceberg-loader` | Spark Streaming → Iceberg writer | — |
+| `trino` | SQL query engine | 8080 |
+
+The `iceberg-loader` reads from `game-events-clean`, normalises column names, converts the unix timestamp to a proper `TIMESTAMP`, and writes to the `iceberg.db.game_events_clean` table partitioned by `event_type` and day. The first batch commits within 30 seconds of startup.
+
+#### Verifying data is flowing
+
+Check the MinIO console at `http://localhost:9001` (credentials: `minioadmin` / `minioadmin`). Parquet files should appear under `warehouse/db/game_events_clean/` within the first minute.
+
+Check the Iceberg catalog:
+
+```bash
+curl http://localhost:8181/v1/namespaces/db/tables
+```
+
+#### Querying with Trino
+
+```bash
+docker compose exec trino trino
+```
+
+```sql
+-- Confirm the table is visible
+SHOW TABLES FROM iceberg.db;
+
+-- Row count (grows every 30 s)
+SELECT COUNT(*) FROM iceberg.db.game_events_clean;
+
+-- Event distribution
+SELECT event_type, COUNT(*) AS events
+FROM iceberg.db.game_events_clean
+GROUP BY event_type;
+
+-- Revenue by country
+SELECT country, ROUND(SUM(purchase_value), 2) AS revenue
+FROM iceberg.db.game_events_clean
+WHERE event_type = 'in-app-purchase'
+GROUP BY country
+ORDER BY revenue DESC;
+
+-- Matches by country
+SELECT country, COUNT(*) AS match_count
+FROM iceberg.db.game_events_clean
+WHERE event_type = 'match'
+GROUP BY country
+ORDER BY match_count DESC;
+```
+
+#### Monitoring queries with the Trino UI
+
+Trino exposes a web UI at `http://localhost:8080`. It shows running and completed queries, cluster stats, and worker node status — no login required.
+
+### 6. Tear down
 
 ```bash
 docker compose down
