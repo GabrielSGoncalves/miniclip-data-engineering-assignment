@@ -40,20 +40,24 @@ WIDE_SCHEMA = StructType([
 ])
 
 
-def rename_columns(df: DataFrame) -> DataFrame:
-    """Replace hyphens with underscores in column names for Iceberg/SQL compatibility."""
-    for field in df.schema.fields:
-        if "-" in field.name:
-            df = df.withColumnRenamed(field.name, field.name.replace("-", "_"))
-    return df
-
-
-def add_event_time(df: DataFrame) -> DataFrame:
-    """Derive a TIMESTAMP column from the unix epoch `time` field, then drop `time`."""
-    return (
-        df
-        .withColumn("event_time", to_timestamp(from_unixtime(col("time"))))
-        .drop("time")
+def transform_for_iceberg(df: DataFrame) -> DataFrame:
+    """
+    Project and rename all columns in one select to match the Iceberg table schema.
+    event_time is placed last so Iceberg field-ID order matches DataFrame column order.
+    """
+    return df.select(
+        col("event-type").alias("event_type"),
+        col("user-id").alias("user_id"),
+        col("country"),
+        col("platform"),
+        col("user-a").alias("user_a"),
+        col("user-b").alias("user_b"),
+        col("winner"),
+        col("game-tier").alias("game_tier"),
+        col("duration"),
+        col("purchase_value"),
+        col("product-id").alias("product_id"),
+        to_timestamp(from_unixtime(col("time"))).alias("event_time"),
     )
 
 
@@ -62,7 +66,6 @@ def ensure_table_exists(spark: SparkSession) -> None:
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {ICEBERG_TABLE} (
             event_type     STRING,
-            event_time     TIMESTAMP,
             user_id        STRING,
             country        STRING,
             platform       STRING,
@@ -72,7 +75,8 @@ def ensure_table_exists(spark: SparkSession) -> None:
             game_tier      BIGINT,
             duration       BIGINT,
             purchase_value DOUBLE,
-            product_id     STRING
+            product_id     STRING,
+            event_time     TIMESTAMP
         )
         USING iceberg
         PARTITIONED BY (event_type, days(event_time))
@@ -127,7 +131,7 @@ def run(spark: SparkSession) -> None:
         .select("d.*")
     )
 
-    transformed = add_event_time(rename_columns(parsed))
+    transformed = transform_for_iceberg(parsed)
 
     query = (
         transformed.writeStream
