@@ -1,6 +1,7 @@
 # miniclip-data-engineering-assignment
 
-Real-time event processing pipeline for 8ballpool game events. Built with Kafka, PySpark, and Python.
+Real-time event processing pipeline for 8ballpool game events.
+> Assignment requirements: [DE Task.pdf](DE%20Task.pdf)
 
 ## Architecture
 
