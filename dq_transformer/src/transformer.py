@@ -28,7 +28,10 @@ def load_rules(path: str) -> list[Rule]:
         config = yaml.safe_load(f)
     rules = []
     for rule_def in config.get("rules", []):
-        cls = RULE_TYPES[rule_def["type"]]
+        rule_type = rule_def["type"]
+        cls = RULE_TYPES.get(rule_type)
+        if cls is None:
+            raise ValueError(f"Unknown rule type '{rule_type}'. Known types: {list(RULE_TYPES)}")
         kwargs = {k: v for k, v in rule_def.items() if k != "type"}
         rules.append(cls(**kwargs))
     return rules
@@ -75,7 +78,9 @@ def main() -> None:
                     event = rule.apply(event)
 
             producer.produce(CLEAN_TOPIC, json.dumps(event).encode(), callback=_delivery_report)
-            producer.poll(0)
+            # flush() blocks until the broker acknowledges the message before we advance
+            # the consumer offset — prevents silent data loss on transient delivery failures
+            producer.flush()
             consumer.commit(msg)
 
             log.info(

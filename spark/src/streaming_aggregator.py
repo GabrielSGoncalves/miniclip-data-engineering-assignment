@@ -8,8 +8,10 @@ from pyspark.sql.functions import (
     countDistinct,
     from_json,
     lit,
+    row_number,
     sum as sum_,
 )
+from pyspark.sql.window import Window
 from pyspark.sql.types import (
     DoubleType,
     LongType,
@@ -57,8 +59,16 @@ def update_user_country_cache(spark: SparkSession, batch_df: DataFrame) -> None:
 
     if spark.catalog.tableExists(_CACHE_VIEW):
         existing = spark.table(_CACHE_VIEW)
-        # New rows first so their country wins on dedup
-        merged = new_mappings.union(existing).dropDuplicates(["user-id"])
+        # Row-number window: within each user-id, source=1 (new) ranks above source=2 (existing)
+        # so the latest-seen country deterministically wins regardless of partition layout
+        w = Window.partitionBy("user-id").orderBy("source")
+        merged = (
+            new_mappings.withColumn("source", lit(1))
+            .union(existing.withColumn("source", lit(2)))
+            .withColumn("rn", row_number().over(w))
+            .filter(col("rn") == 1)
+            .drop("source", "rn")
+        )
     else:
         merged = new_mappings
 
