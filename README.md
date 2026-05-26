@@ -4,13 +4,17 @@ Real-time event processing pipeline for 8ballpool game events. Built with Kafka,
 
 ## Architecture
 
-```
-[producer] ──► [Kafka: game-events-raw] ──► [dq-transformer] ──► [Kafka: game-events-clean] ──► [spark-batch]
-                                                                                                ──► [spark-streaming]
-                                                                                                ──► [iceberg-loader] ──► [MinIO] ◄── [Iceberg REST] ◄── [Trino]
-```
+![Architecture diagram](docs/images/8ball_stream_architecture_diagram.png)
 
-Events flow from a synthetic producer into Kafka. A DQ transformer reads from the raw topic, applies configurable field transformations, and publishes cleaned events to a second topic. A Spark batch job reads from the clean topic and aggregates the data. A Spark Streaming job reads continuously from the clean topic and emits per-minute aggregations. An Iceberg loader streams clean events into a Parquet/Iceberg table on MinIO, queryable via Trino.
+The pipeline is fully containerised via Docker Compose and organised into three composable profiles:
+
+**Core (always-on)** — a synthetic `producer` generates `init`, `match`, and `in-app-purchase` events at a configurable rate and publishes them to the `game-events-raw` Kafka topic. A `dq-transformer` consumes that topic, applies a YAML-configured set of field transformations (e.g. uppercasing `platform`, mapping `country` codes to full names), and re-publishes the cleaned events to `game-events-clean`.
+
+**`--profile batch`** — `spark-batch` is an on-demand Spark job that reads from `game-events-clean` and prints daily distinct-user counts grouped by country and platform.
+
+**`--profile streaming`** — `spark-streaming` reads continuously from `game-events-clean` and emits per-minute aggregations: purchase count, total revenue, distinct active users, revenue by country, and match count by country.
+
+**`--profile lakehouse`** — `iceberg-loader` streams events from `game-events-clean` into a partitioned Iceberg v2 table stored as Parquet on MinIO (S3-compatible). `iceberg-rest` serves the Iceberg REST catalog backed by the same MinIO bucket. `trino` connects to the catalog and exposes the tables for interactive SQL queries.
 
 ## Prerequisites
 
