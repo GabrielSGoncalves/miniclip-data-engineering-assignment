@@ -116,10 +116,12 @@ rules:
 
 Supported rule types:
 
-| Type | Effect | Example |
-|---|---|---|
-| `uppercase` | Uppercases the field value | `ios → IOS` |
-| `map_id` | Maps a value to a name via a lookup table | `PT → Portugal` |
+
+| Type        | Effect                                    | Example         |
+| ----------- | ----------------------------------------- | --------------- |
+| `uppercase` | Uppercases the field value                | `ios → IOS`     |
+| `map_id`    | Maps a value to a name via a lookup table | `PT → Portugal` |
+
 
 ### 3. Run the Spark batch aggregation
 
@@ -204,20 +206,22 @@ docker compose --profile lakehouse up -d
 
 This brings up five additional services:
 
-| Service | Purpose | Port |
-|---|---|---|
-| `minio` | S3-compatible object store | 9000 (API), 9001 (console) |
-| `minio-init` | One-shot bucket creation | — |
-| `iceberg-rest` | Iceberg REST catalog | 8181 |
-| `iceberg-loader` | Spark Streaming → Iceberg writer | — |
-| `trino` | SQL query engine | 8080 |
+
+| Service          | Purpose                          | Port                       |
+| ---------------- | -------------------------------- | -------------------------- |
+| `minio`          | S3-compatible object store       | 9000 (API), 9001 (console) |
+| `minio-init`     | One-shot bucket creation         | —                          |
+| `iceberg-rest`   | Iceberg REST catalog             | 8181                       |
+| `iceberg-loader` | Spark Streaming → Iceberg writer | —                          |
+| `trino`          | SQL query engine                 | 8080                       |
+
 
 The `iceberg-loader` reads from `game-events-clean`, normalises column names, converts the unix timestamp to a proper `TIMESTAMP`, and writes to the `iceberg.db.game_events_clean` table partitioned by `event_type` and day. The first batch commits within 30 seconds of startup.
 
 #### Verifying data is flowing
 
 Check the MinIO console at `http://localhost:9001` (credentials: `minioadmin` / `minioadmin`). Parquet files should appear under `warehouse/db/game_events_clean/` within the first minute.
-
+![Minio UI](docs/images/minio_ui.png)
 Check the Iceberg catalog:
 
 ```bash
@@ -269,7 +273,7 @@ docker compose down
 
 ## Running the tests
 
-Tests run locally without Docker. [`uv`](https://docs.astral.sh/uv/) manages the virtualenvs automatically — no manual activation needed.
+Tests run locally without Docker. `[uv](https://docs.astral.sh/uv/)` manages the virtualenvs automatically — no manual activation needed.
 
 ```bash
 # Event generator tests — validates generated events against the JSON schemas in schemas/
