@@ -261,9 +261,13 @@ GROUP BY country
 ORDER BY match_count DESC;
 ```
 
+You can also access the Iceberg Catalog using a SQL Client like DBeaver or Beekeeper over the `localhost:8080` for a more fluid experience querying the Iceberg tables.
+![Beekeeper SQL Client](docs/images/sqlclient_iceberg_tables.png)
+
 #### Monitoring queries with the Trino UI
 
 Trino exposes a web UI at `http://localhost:8080`. It shows running and completed queries, cluster stats, and worker node status — no login required.
+![Trino UI](docs/images/trino_monitoring.png)
 
 ### 6. Tear down
 
